@@ -84,8 +84,6 @@ const DRIVE_FILE_NAME='lifeos_sync.json';
 const TYPES=['사건','아이디어','생활신호','기억','할일','자료','약속','프로젝트기록','AIPICK'];
 const DAYS=['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
 const DAY0={0:['느슨한 아침','생활 정리','자유 시간'],1:['아침 루틴','출근'],2:['아침 루틴','출근','수영 07:00'],3:['아침 루틴','출근','프로젝트 집중'],4:['아침 루틴','출근','수영 07:00'],5:['아침 루틴','출근','주간 정리'],6:['느슨한 아침','생활 정리','사람과 시간']};
-let db=loadLocal(),stype='사건',eday=new Date().getDay();
-let tokenClient=null,accessToken=null,tokenExpiresAt=0,gUser=null,driveFileId=null,lastRemoteModified=null,localDirty=false,gAutoSyncStarted=false,gSyncTimer=null,gSyncSoonTimer=null,gBusy=false;
 function uid(prefix='id'){return prefix+'_'+crypto.randomUUID();}
 const DEFAULT_TPOS=[
 {name:'출근·업무',items:['출근 준비','오늘의 우선순위 확인','필요한 자료·충전기 확인','퇴근 전 내일 할 일 1개 남기기']},
@@ -110,6 +108,8 @@ z.weekdays=z.weekdays&&typeof z.weekdays==='object'?z.weekdays:structuredClone(D
 z.weekdaysUpdatedAt=z.weekdaysUpdatedAt||new Date().toISOString();
 z.record_versions=Array.isArray(z.record_versions)?z.record_versions:[];
 return z}
+let db=loadLocal(),stype='사건',eday=new Date().getDay();
+let tokenClient=null,accessToken=null,tokenExpiresAt=0,gUser=null,driveFileId=null,lastRemoteModified=null,localDirty=false,gAutoSyncStarted=false,gSyncTimer=null,gSyncSoonTimer=null,gBusy=false;
 function loadLocal(){try{return normalize(JSON.parse(localStorage.getItem(KEY)||'null'))}catch(e){return base()}}
 function saveLocal(){if(db.activity_log&&db.activity_log.length>500)db.activity_log=db.activity_log.slice(-500);localStorage.setItem(KEY,JSON.stringify(db))}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
@@ -165,62 +165,23 @@ function mergeDb(local,remote){if(!remote)return local;const merged={...local};m
 function markDirtyAndSync(){localDirty=true;const el=document.getElementById('sqc');if(el)el.textContent='전송 대기 중';clearTimeout(gSyncSoonTimer);gSyncSoonTimer=setTimeout(()=>{if(tokenClient)gSync()},1500)}
 async function gSync(){if(!tokenClient||gBusy)return;gBusy=true;try{await ensureToken();if(!driveFileId)await driveFindOrCreateFile();let meta;try{meta=await driveGetMeta(driveFileId)}catch(e){driveFileId=null;const c=readGCFG();delete c.driveFileId;writeGCFG(c);await driveFindOrCreateFile();meta=await driveGetMeta(driveFileId)}const remoteChanged=meta.modifiedTime!==lastRemoteModified;if(remoteChanged||localDirty){let remoteDb=null;if(remoteChanged){remoteDb=await driveDownload(driveFileId);lastRemoteModified=meta.modifiedTime}if(remoteDb){db=mergeDb(db,remoteDb);saveLocal()}if(localDirty||remoteChanged){const newMeta=await driveUpload(driveFileId,exportForCloud());lastRemoteModified=newMeta.modifiedTime;localDirty=false}status('☁️ 동기화 완료','online')}else{status('☁️ 최신 상태','online')}}catch(e){console.error(e);status('⚠️ 동기화 오류','error')}finally{gBusy=false;render()}}
 function startGAutoSync(){if(gAutoSyncStarted)return;gAutoSyncStarted=true;gSyncTimer=setInterval(()=>{if(document.visibilityState==='visible')gSync()},45000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')gSync()});window.addEventListener('focus',()=>gSync())}
-
-function initTokenClient(clientId) {
-  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) return;
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: SCOPES,
-    include_granted_scopes: true,
-    callback: async (resp) => {
-      if (resp.error) {
-        console.error(resp);
-        status('⚠️ Google 승인 실패', 'error');
-        alert('Google 승인 실패: ' + (resp.error_description || resp.error));
-        return;
-      }
-      accessToken = resp.access_token;
-      tokenExpiresAt = Date.now() + ((resp.expires_in || 3600) * 1000);
-      try {
-        try { gUser = await fetchGoogleProfile(); } catch (e) { gUser = { id: 'google-user', email: 'Google 계정 연결됨' }; }
-        authLabel();
-        status('☁️ 연결 중 · 첫 동기화', 'online');
-        await driveFindOrCreateFile();
-        await gSync();
-        await fetchCalendarEvents();
-        startGAutoSync();
-        alert('Google 계정에 연결되었습니다: ' + gUser.email);
-      } catch (e) {
-        console.error(e);
-        status('⚠️ 연결 실패', 'error');
-        alert('Google 연결 후 초기화 실패: ' + (e.message || e));
-      }
-    }
-  });
-  tokenClient.error_callback = (err) => {
-    console.error(err);
-    status('⚠️ Google 로그인 실패', 'error');
-    alert('Google 로그인 실패: ' + (err?.type || '팝업이 차단되었거나 OAuth 설정을 확인해야 합니다.'));
-  };
-}
-
 function gConnect(){
 try{
 const clientId=document.getElementById('gClientId').value.trim();
 if(!clientId)return alert('Google Cloud Console에서 발급받은 OAuth 클라이언트 ID를 입력하세요.');
 if(typeof google==='undefined'||!google.accounts||!google.accounts.oauth2)return alert('Google 로그인 라이브러리가 아직 준비되지 않았습니다. 잠시 후 다시 눌러주세요.');
 const cfg=readGCFG();cfg.clientId=clientId;writeGCFG(cfg);
-
-// 전역 초기화 함수 호출
-initTokenClient(clientId);
-
-if(!tokenClient)return alert('Google 로그인 클라이언트 초기화에 실패했습니다.');
-
+tokenClient=google.accounts.oauth2.initTokenClient({client_id:clientId,scope:SCOPES,include_granted_scopes:true,callback:async(resp)=>{
+if(resp.error){console.error(resp);status('⚠️ Google 승인 실패','error');alert('Google 승인 실패: '+(resp.error_description||resp.error));return}
+accessToken=resp.access_token;tokenExpiresAt=Date.now()+((resp.expires_in||3600)*1000);
+try{try{gUser=await fetchGoogleProfile()}catch(e){gUser={id:'google-user',email:'Google 계정 연결됨'}}
+authLabel();status('☁️ 연결 중 · 첫 동기화','online');await driveFindOrCreateFile();await gSync();await fetchCalendarEvents();startGAutoSync();alert('Google 계정에 연결되었습니다: '+gUser.email)}
+catch(e){console.error(e);status('⚠️ 연결 실패','error');alert('Google 연결 후 초기화 실패: '+(e.message||e))}}});
+tokenClient.error_callback=(err)=>{console.error(err);status('⚠️ Google 로그인 실패','error');alert('Google 로그인 실패: '+(err?.type||'팝업이 차단되었거나 OAuth 설정을 확인해야 합니다.'))};
 // 반드시 버튼 클릭 이벤트 안에서 즉시 호출한다.
 tokenClient.requestAccessToken({prompt:'consent'});
 }catch(e){console.error(e);alert('Google 로그인 시작 중 오류: '+(e.message||e)+'\n\n계속되면 시스템 탭에서 "연결 해제"를 누르거나, 브라우저 설정에서 이 사이트의 저장된 데이터(쿠키/사이트 데이터)를 지운 뒤 다시 시도해주세요.')}
 }
-
 function gDisconnect(){if(accessToken&&typeof google!=='undefined'&&google.accounts)google.accounts.oauth2.revoke(accessToken,()=>{});accessToken=null;tokenExpiresAt=0;tokenClient=null;gUser=null;driveFileId=null;lastRemoteModified=null;if(gSyncTimer){clearInterval(gSyncTimer);gSyncTimer=null}gAutoSyncStarted=false;const cfg=readGCFG();delete cfg.driveFileId;writeGCFG(cfg);authLabel();status('로컬 모드');const gc=document.getElementById('gcal');if(gc)gc.innerHTML='<div class="small">시스템 탭에서 Google 계정을 연결하면 표시됩니다.</div>'}
 async function fetchCalendarEvents(){
 const gc=document.getElementById('gcal');if(!gc)return;
@@ -234,8 +195,6 @@ db.calendar_events=items.map(ev=>({id:ev.id,summary:ev.summary||'',start:ev.star
 gc.innerHTML=items.length?items.map(ev=>{const startRaw=ev.start?.dateTime||ev.start?.date;const label=ev.start?.dateTime?new Date(startRaw).toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):new Date(startRaw).toLocaleDateString('ko-KR',{month:'short',day:'numeric'})+' 종일';return '<div class="flow"><time>'+esc(label)+'</time><b>'+esc(ev.summary||'(제목 없음)')+'</b></div>'}).join(''):'<div class="small">앞으로 7일간 다가오는 일정이 없습니다.</div>';
 }catch(e){console.error(e);gc.innerHTML='<div class="notice warn"><b>캘린더 연결 오류</b><br>'+esc(e.message||e)+'</div>'}
 }
-(async function boot(){try{const cfg=readGCFG();if(cfg&&cfg.clientId){document.getElementById('gClientId').value=cfg.clientId;const ready=await waitForGoogle();if(!ready){status('⚠️ 오프라인 · 로컬 모드','warn');render();return}driveFileId=cfg.driveFileId||null;
-initTokenClient(cfg.clientId);
-try{await ensureToken();try{gUser=await fetchGoogleProfile()}catch(e){console.warn('프로필 조회 실패 · 동기화는 계속 진행',e);gUser={id:'google-user',email:'Google 계정 연결됨'}}authLabel();if(!driveFileId)await driveFindOrCreateFile();await gSync();await fetchCalendarEvents();startGAutoSync();status('☁️ 자동 연결됨','online')}catch(e){console.warn('자동 로그인 보류',e);status('로컬 모드 · Google 로그인 필요','warn')}}}catch(e){console.warn(e)}render()})();
+(async function boot(){try{const cfg=readGCFG();if(cfg&&cfg.clientId){document.getElementById('gClientId').value=cfg.clientId;const ready=await waitForGoogle();if(!ready){status('⚠️ 오프라인 · 로컬 모드','warn');render();return}driveFileId=cfg.driveFileId||null;tokenClient=google.accounts.oauth2.initTokenClient({client_id:cfg.clientId,scope:SCOPES,callback:()=>{}});try{await ensureToken();try{gUser=await fetchGoogleProfile()}catch(e){console.warn('프로필 조회 실패 · 동기화는 계속 진행',e);gUser={id:'google-user',email:'Google 계정 연결됨'}}authLabel();if(!driveFileId)await driveFindOrCreateFile();await gSync();await fetchCalendarEvents();startGAutoSync();status('☁️ 자동 연결됨','online')}catch(e){console.warn('자동 로그인 보류',e);status('로컬 모드 · Google 로그인 필요','warn')}}}catch(e){console.warn(e)}render()})();
 </script>
 </body></html>
