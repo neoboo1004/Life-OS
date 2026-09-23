@@ -179,7 +179,7 @@ authLabel();status('☁️ 연결 중 · 첫 동기화','online');await driveFin
 catch(e){console.error(e);status('⚠️ 연결 실패','error');alert('Google 연결 후 초기화 실패: '+(e.message||e))}}});
 tokenClient.error_callback=(err)=>{console.error(err);status('⚠️ Google 로그인 실패','error');alert('Google 로그인 실패: '+(err?.type||'팝업이 차단되었거나 OAuth 설정을 확인해야 합니다.'))};
 // 반드시 버튼 클릭 이벤트 안에서 즉시 호출한다.
-tokenClient.requestAccessToken({prompt:'consent'});
+tokenClient.requestAccessToken({prompt:'select_account consent'});
 }catch(e){console.error(e);alert('Google 로그인 시작 중 오류: '+(e.message||e)+'\n\n계속되면 시스템 탭에서 "연결 해제"를 누르거나, 브라우저 설정에서 이 사이트의 저장된 데이터(쿠키/사이트 데이터)를 지운 뒤 다시 시도해주세요.')}
 }
 function gDisconnect(){if(accessToken&&typeof google!=='undefined'&&google.accounts)google.accounts.oauth2.revoke(accessToken,()=>{});accessToken=null;tokenExpiresAt=0;tokenClient=null;gUser=null;driveFileId=null;lastRemoteModified=null;if(gSyncTimer){clearInterval(gSyncTimer);gSyncTimer=null}gAutoSyncStarted=false;const cfg=readGCFG();delete cfg.driveFileId;writeGCFG(cfg);authLabel();status('로컬 모드');const gc=document.getElementById('gcal');if(gc)gc.innerHTML='<div class="small">시스템 탭에서 Google 계정을 연결하면 표시됩니다.</div>'}
