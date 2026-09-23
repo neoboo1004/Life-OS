@@ -55,7 +55,7 @@ footer{text-align:center;color:#999;font-size:10px;margin-top:24px}
 <section class="card"><div class="head"><div><b>☁️ Google Drive Sync</b><span class="small" id="syncLabel">현재: 로컬 저장</span></div></div>
 <div class="notice safe"><b>동작 방식</b><br>내 Google 계정의 <b>App Data(앱 전용 저장공간)</b>에 하나의 동기화 파일을 저장합니다. 이 공간은 다른 앱·Drive 화면에는 보이지 않고 이 앱만 접근합니다. 로그인 후 45초마다, 그리고 화면 전환/복귀 시 자동으로 동기화합니다.</div>
 <div class="row"><input id="gClientId" placeholder="Google OAuth 클라이언트 ID (xxxx.apps.googleusercontent.com)"></div>
-<div class="row"><button class="primary" onclick="gConnect()">🔐 Google 로그인</button><button class="secondary" onclick="gSync()">↻ 지금 동기화</button><button class="secondary" onclick="gDisconnect()">연결 해제</button></div>
+<div class="row"><button class="primary" onclick="gConnect()">🔐 Google 로그인</button><button class="secondary" onclick="syncAll()">↻ 지금 동기화</button><button class="secondary" onclick="gDisconnect()">연결 해제</button></div>
 <div class="notice" style="margin-top:9px"><b>현재 연결 상태</b><div id="authState" class="small" style="margin-top:5px">로그인되지 않음</div></div>
 </section>
 
@@ -164,7 +164,8 @@ function mergeArr(a,b){const map={};for(const x of(a||[]))map[x.id]=x;for(const 
 function mergeDb(local,remote){if(!remote)return local;const merged={...local};merged.records=mergeArr(local.records,remote.records);merged.projects=mergeArr(local.projects,remote.projects);merged.tpos=mergeArr(local.tpos,remote.tpos);const lt=Date.parse(local.weekdaysUpdatedAt||0)||0,rt=Date.parse(remote.weekdaysUpdatedAt||0)||0;if(rt>lt){merged.weekdays=remote.weekdays;merged.weekdaysUpdatedAt=remote.weekdaysUpdatedAt}return merged}
 function markDirtyAndSync(){localDirty=true;const el=document.getElementById('sqc');if(el)el.textContent='전송 대기 중';clearTimeout(gSyncSoonTimer);gSyncSoonTimer=setTimeout(()=>{if(tokenClient)gSync()},1500)}
 async function gSync(){if(!tokenClient||gBusy)return;gBusy=true;try{await ensureToken();if(!driveFileId)await driveFindOrCreateFile();let meta;try{meta=await driveGetMeta(driveFileId)}catch(e){driveFileId=null;const c=readGCFG();delete c.driveFileId;writeGCFG(c);await driveFindOrCreateFile();meta=await driveGetMeta(driveFileId)}const remoteChanged=meta.modifiedTime!==lastRemoteModified;if(remoteChanged||localDirty){let remoteDb=null;if(remoteChanged){remoteDb=await driveDownload(driveFileId);lastRemoteModified=meta.modifiedTime}if(remoteDb){db=mergeDb(db,remoteDb);saveLocal()}if(localDirty||remoteChanged){const newMeta=await driveUpload(driveFileId,exportForCloud());lastRemoteModified=newMeta.modifiedTime;localDirty=false}status('☁️ 동기화 완료','online')}else{status('☁️ 최신 상태','online')}}catch(e){console.error(e);status('⚠️ 동기화 오류','error')}finally{gBusy=false;render()}}
-function startGAutoSync(){if(gAutoSyncStarted)return;gAutoSyncStarted=true;gSyncTimer=setInterval(()=>{if(document.visibilityState==='visible')gSync()},45000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')gSync()});window.addEventListener('focus',()=>gSync())}
+async function syncAll(){await gSync();if(gUser)await fetchCalendarEvents()}
+function startGAutoSync(){if(gAutoSyncStarted)return;gAutoSyncStarted=true;gSyncTimer=setInterval(()=>{if(document.visibilityState==='visible')syncAll()},45000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncAll()});window.addEventListener('focus',()=>syncAll())}
 function gConnect(){
 try{
 const clientId=document.getElementById('gClientId').value.trim();
